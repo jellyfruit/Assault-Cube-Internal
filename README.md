@@ -7,6 +7,8 @@ A simple, internal cheat for Assault Cube made in C++
 - Infinite Armor
 - No Recoil
 - Teleportation
+### Menu
+![menu](menu.png)
 
 ## License
 More info on the license can be found in the [LICENSE](https://github.com/jellyfruit/Assault-Cube-Internal/blob/main/LICENSE) file
