@@ -16,7 +16,7 @@ A simple, internal cheat for Assault Cube made in C++
 More info on the license can be found in the [LICENSE](https://github.com/jellyfruit/Assault-Cube-Internal/blob/main/LICENSE) file
 
 ## Compiling
-**Windows**
+### Windows
 You will need **Microsoft Visual Studio 2022** with the **Desktop development with C++** workload installed
 
 ### Compiling from source
