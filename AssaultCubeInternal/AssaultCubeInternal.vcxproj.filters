@@ -29,5 +29,8 @@
     <ClInclude Include="offsets.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="hook.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

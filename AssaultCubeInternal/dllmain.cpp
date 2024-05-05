@@ -2,14 +2,19 @@
 #include <iostream>
 #include <thread>
 #include <format>
+#include <array>
 #include "mem.h"
+#include "hook.h"
 #include "offsets.h"
 
 uintptr_t localPlayer{};
 uintptr_t godModeJump{};
 uintptr_t infAmmoJump{};
 uintptr_t infArmorJump{};
-uintptr_t noRecoilJump{};
+uintptr_t fastReloadJump{};
+uintptr_t rapidFireJump{};
+
+constexpr std::array<uint8_t, 5> noRecoilBytes = { 0xF3, 0x0F, 0x11, 0x56, 0x38 };
 
 void __declspec(naked) godMode() {
     __asm {
@@ -67,15 +72,40 @@ void __declspec(naked) infArmor() {
     }
 }
 
-void __declspec(naked) noRecoil() {
+void __declspec(naked) fastReload() {
     __asm {
-        cmp esi, localPlayer
+        push edi
+        mov edi, [edi+0x08]
+        cmp edi, localPlayer
+        pop edi
         je equal
-        
-        movss[esi+38], xmm2
+
+        notequal:
+        mov [ecx], eax
 
         equal:
-        jmp [noRecoilJump]
+        mov eax, [edi+0x10]
+
+        jmp [fastReloadJump]
+    }
+}
+
+void __declspec(naked) rapidFire() {
+    __asm {
+        push esi
+        mov esi, [esi+0x08]
+        cmp esi, localPlayer
+        pop esi
+        je equal
+
+        notequal:
+        mov eax, [esi+0x18]
+        mov eax, [ecx]
+
+        equal:
+        mov eax, [esi+0x18]
+
+        jmp [rapidFireJump]
     }
 }
 
@@ -83,18 +113,25 @@ struct Vector3 {
     float x, y, z;
 };
 
-void displayUI(bool bGodMode, bool bInfAmmo, bool bInfArmor, bool bNoRecoil, Vector3 savedPos) {
+struct Vector2 {
+    float x, y;
+};
+
+void displayUI(bool bGodMode, bool bInfAmmo, bool bInfArmor, bool bNoRecoil, bool bFastReload, bool bRapidFire, Vector3 savedPos) {
     system("cls");
-    std::cout << std::format("Jelly's Internal Trainer v1.0\n\n"
+    std::cout << std::format("Jelly's Internal Trainer v1.1\n\n"
         "God Mode       [NUMPAD1] [{}]\n"
         "Infinite Ammo  [NUMPAD2] [{}]\n"
         "Infinite Armor [NUMPAD3] [{}]\n"
-        "No Recoil      [NUMPAD4] [{}]\n\n"
+        "No Recoil      [NUMPAD4] [{}]\n"
+        "Fast Reload    [NUMPAD5] [{}]\n"
+        "Rapid Fire     [NUMPAD6] [{}]\n"
+        "Please note rapid fire only removes the firing delay; it does not make weapons automatic.\n\n"
 
-        "Save Position  [NUMPAD5]\n"
-        "Teleport       [NUMPAD6] [{}, {}, {}]\n\n"
+        "Save Position  [NUMPAD7]\n"
+        "Teleport       [NUMPAD8] [{}, {}, {}]\n\n"
         "Uninject       [INSERT]\n", 
-        bGodMode, bInfAmmo, bInfArmor, bNoRecoil, 
+        bGodMode, bInfAmmo, bInfArmor, bNoRecoil, bFastReload, bRapidFire,
         (int)savedPos.x, (int)savedPos.z, (int)savedPos.y);
 }
 
@@ -104,52 +141,61 @@ uintptr_t WINAPI HackThread(HMODULE hModule) {
     freopen_s(&file, "CONOUT$", "w", stdout);
 
     uintptr_t moduleBase{ (uintptr_t)GetModuleHandle(L"ac_client.exe") };
-    localPlayer = *(uintptr_t*)(moduleBase + 0x18AC00);
+    localPlayer = *(uintptr_t*)(moduleBase + offsets::localPlayer);
 
-    bool bGodMode{ false }, bInfAmmo{ false }, bInfArmor{ false }, bNoRecoil{ false };
+    bool bGodMode{ false }, bInfAmmo{ false }, bInfArmor{ false }, bNoRecoil{ false }, bFastReload{ false }, bRapidFire{ false };
 
-    int hookSize = 5;
-    uintptr_t godModeHook{ moduleBase + offsets::godMode }; godModeJump = godModeHook + hookSize;
-    uintptr_t infAmmoHook{ moduleBase + offsets::infAmmo }; infAmmoJump = infAmmoHook + hookSize;
-    uintptr_t infArmorHook{ moduleBase + offsets::infArmor }; infArmorJump = infArmorHook + hookSize;
-    uintptr_t noRecoilHook{ moduleBase + offsets::noRecoil }; noRecoilJump = noRecoilHook + hookSize;
+    Hook<5> godModeHook{ moduleBase + offsets::godMode, godMode };
+    Hook<5> infAmmoHook{ moduleBase + offsets::infAmmo, infAmmo };
+    Hook<5> infArmorHook{ moduleBase + offsets::infArmor, infArmor };
+    Hook<5> fastReloadHook{ moduleBase + offsets::fastReload, fastReload };
+    Hook<5> rapidFireHook{ moduleBase + offsets::rapidFire, rapidFire };
+    uintptr_t noRecoilHook{ moduleBase + offsets::noRecoil };
 
-    uintptr_t positionPtr{ localPlayer + 0x28 };
+    godModeJump = godModeHook.address + godModeHook.size;
+    infAmmoJump = infAmmoHook.address + infAmmoHook.size;
+    infArmorJump = infArmorHook.address + infArmorHook.size;
+    fastReloadJump = fastReloadHook.address + fastReloadHook.size;
+    rapidFireJump = rapidFireHook.address + rapidFireHook.size;
+
+    uintptr_t positionPtr{ localPlayer + offsets::position };
     Vector3 savedPos{};
-    uintptr_t armorPtr{ localPlayer + 0xF0 };
+    uintptr_t viewAnglesPtr{ localPlayer + offsets::viewAngles };
+    Vector2 savedViewAngles{};
+    uintptr_t armorPtr{ localPlayer + offsets::armor };
     int savedArmor{};
 
     std::cout << std::boolalpha;
-    displayUI(bGodMode, bInfAmmo, bInfArmor, bNoRecoil, savedPos);
-    while (true) {
+    displayUI(bGodMode, bInfAmmo, bInfArmor, bNoRecoil, bFastReload, bRapidFire, savedPos);
+    while (!GetAsyncKeyState(VK_INSERT)) {
         bool updateUI{ false };
 
         if (GetAsyncKeyState(VK_NUMPAD1) & 1) {
             updateUI = true;
             bGodMode = !bGodMode;
             if (bGodMode)
-                mem::Hook((void*)godModeHook, godMode, hookSize);
+                godModeHook.hook();
             else
-                mem::Patch(godModeHook, (BYTE*)"\x29\x73\x04\x8B\xC6", hookSize);
+                godModeHook.unhook();
         }
         if (GetAsyncKeyState(VK_NUMPAD2) & 1) {
             updateUI = true;
             bInfAmmo = !bInfAmmo;
             if (bInfAmmo)
-                mem::Hook((void*)infAmmoHook, infAmmo, hookSize);
+                infAmmoHook.hook();
             else
-                mem::Patch(infAmmoHook, (BYTE*)"\x8B\x46\x14\xFF\x08", hookSize);
+                infAmmoHook.unhook();
         }
         if (GetAsyncKeyState(VK_NUMPAD3) & 1) {
             updateUI = true;
             bInfArmor = !bInfArmor;
             if (bInfArmor) {
-                mem::Hook((void*)infArmorHook, infArmor, hookSize);
+                infArmorHook.hook();
                 savedArmor = *reinterpret_cast<int*>(armorPtr);
                 *reinterpret_cast<int*>(armorPtr) = 100;
             }
             else {
-                mem::Patch(infArmorHook, (BYTE*)"\x2B\xD0\x89\x53\x08", hookSize);
+                infArmorHook.unhook();
                 *reinterpret_cast<int*>(armorPtr) = savedArmor;
             }
         }
@@ -157,35 +203,52 @@ uintptr_t WINAPI HackThread(HMODULE hModule) {
             updateUI = true;
             bNoRecoil = !bNoRecoil;
             if (bNoRecoil)
-                mem::Hook((void*)noRecoilHook, noRecoil, hookSize);
+                mem::Nop(noRecoilHook, 5);
             else
-                mem::Patch(noRecoilHook, (BYTE*)"\xF3\x0F\x11\x56\x38", hookSize);
+                mem::Patch(noRecoilHook, noRecoilBytes);
         }
         if (GetAsyncKeyState(VK_NUMPAD5) & 1) {
             updateUI = true;
-            savedPos = *reinterpret_cast<Vector3*>(positionPtr);
+            bFastReload = !bFastReload;
+            if (bFastReload)
+                fastReloadHook.hook();
+            else
+                fastReloadHook.unhook();
         }
         if (GetAsyncKeyState(VK_NUMPAD6) & 1) {
-            *reinterpret_cast<Vector3*>(positionPtr) = savedPos;
+            updateUI = true;
+            bRapidFire = !bRapidFire;
+            if (bRapidFire)
+                rapidFireHook.hook();
+            else
+                rapidFireHook.unhook();
         }
-        if (GetAsyncKeyState(VK_INSERT) & 1) {
-            system("cls");
-
-            *reinterpret_cast<int*>(armorPtr) = savedArmor;
-            mem::Patch(godModeHook, (BYTE*)"\x29\x73\x04\x8B\xC6", hookSize);
-            mem::Patch(infAmmoHook, (BYTE*)"\x8B\x46\x14\xFF\x08", hookSize);
-            mem::Patch(infArmorHook, (BYTE*)"\x2B\xD0\x89\x53\x08", hookSize);
-            mem::Patch(noRecoilHook, (BYTE*)"\xF3\x0F\x11\x56\x38", hookSize);
-
-            std::cout << "Uninjected.";
-            break;
+        if (GetAsyncKeyState(VK_NUMPAD7) & 1) {
+            updateUI = true;
+            savedPos = *reinterpret_cast<Vector3*>(positionPtr);
+            savedViewAngles = *reinterpret_cast<Vector2*>(viewAnglesPtr);
+        }
+        if (GetAsyncKeyState(VK_NUMPAD8) & 1) {
+            *reinterpret_cast<Vector3*>(positionPtr) = savedPos;
+            *reinterpret_cast<Vector2*>(viewAnglesPtr) = savedViewAngles;
         }
 
 
         if (updateUI)
-            displayUI(bGodMode, bInfAmmo, bInfArmor, bNoRecoil, savedPos);
+            displayUI(bGodMode, bInfAmmo, bInfArmor, bNoRecoil, bFastReload, bRapidFire, savedPos);
         std::this_thread::sleep_for(std::chrono::milliseconds(3));
     }
+
+    system("cls");
+
+    *reinterpret_cast<int*>(armorPtr) = savedArmor;
+    godModeHook.unhook();
+    infAmmoHook.unhook();
+    infArmorHook.unhook();
+    fastReloadHook.unhook();
+    mem::Patch(noRecoilHook, noRecoilBytes);
+
+    std::cout << "Uninjected.";
     
     FreeConsole();
     FreeLibraryAndExitThread(hModule, 0);
@@ -198,10 +261,9 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
-        HANDLE thread = CreateThread(nullptr, 0, (LPTHREAD_START_ROUTINE)HackThread, hModule, 0, nullptr);
+        std::thread thread(HackThread, hModule);
+        thread.detach();
 
-        if (thread)
-            CloseHandle(thread);
         break;
     }
     case DLL_THREAD_ATTACH:
