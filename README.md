@@ -6,6 +6,8 @@ A simple, internal cheat for Assault Cube made in C++
 - Infinite Ammo
 - Infinite Armor
 - No Recoil
+- Quick Reload
+- Rapid Fire
 - Teleportation
 ### Menu
 ![menu](menu.png)
